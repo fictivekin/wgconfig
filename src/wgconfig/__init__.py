@@ -26,6 +26,7 @@ class WGConfig():
     SECTION_RAW = '_rawdata'
     _interface = None # interface attributes
     _peers = None # peer data
+    _subfiles = {}
 
     def __init__(self, file, keyattr='PublicKey'):
         """Object initialization"""
@@ -47,6 +48,7 @@ class WGConfig():
         """Clears the data structs"""
         self._interface = None
         self._peers = None
+        self._subfiles = {}
 
     def read_file(self):
         """Reads the Wireguard config file into memory"""
@@ -63,6 +65,18 @@ class WGConfig():
         with os.fdopen(os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640), 'w') as wgfile:
             wgfile.writelines(line + '\n' for line in self.lines)
 
+    def add_subfile(self, filename):
+        self._subfiles.update({
+            filename: WGConfig.read_subfile(filename),
+        })
+
+    @classmethod
+    def read_subfile(cls, filename):
+        print(filename)
+        conf = cls(filename)
+        conf.read_file()
+        return conf
+
     @staticmethod
     def parse_line(line):
         """Splits a single attr/value line into its parts"""
@@ -71,7 +85,7 @@ class WGConfig():
         parts = value.partition('#')
         value = parts[0].strip() # strip comments and whitespace
         value = str(value) # this line is for Python2 support only
-        comment = parts[1] + parts[2]
+        comment = ' '.join(parts[1:])
         if value.isnumeric():
             value = [int(value)]
         else:
@@ -126,6 +140,11 @@ class WGConfig():
                 section_data[self.SECTION_LASTLINE] = [i]
             else: # regular line
                 attr, value, _comment = self.parse_line(line)
+                try:
+                    if ' addconf ' in value[0]:
+                        self.add_subfile(value[0].split(' ')[-1])
+                except (IndexError, TypeError):
+                    pass
                 section_data[attr] = section_data.get(attr, [])
                 section_data[attr].extend(value)
                 section_data[self.SECTION_LASTLINE] = [i]
@@ -265,7 +284,10 @@ class WGConfig():
         """Dictionary with peer data"""
         if self._peers is None:
             self.parse_lines()
-        return self._peers
+        peers = self._peers
+        for subconf in self._subfiles.values():
+            peers.update(subconf.peers)
+        return peers
 
 
 def main():
